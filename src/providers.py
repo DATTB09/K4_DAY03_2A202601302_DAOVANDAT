@@ -8,6 +8,7 @@ import sys
 import json
 import requests
 from dotenv import load_dotenv
+from prompts import TIMEOUT_SECONDS
 
 # Đảm bảo in ra Tiếng Việt và Emojis không bị lỗi trên Windows Console
 if sys.stdout.encoding != 'utf-8':
@@ -57,7 +58,7 @@ class OpenAIProvider(BaseLLMProvider):
             return "[OpenAI Error]: Chưa cấu hình OPENAI_API_KEY trong file .env!"
         try:
             import openai
-            client = openai.OpenAI(api_key=self.api_key)
+            client = openai.OpenAI(api_key=self.api_key, timeout=TIMEOUT_SECONDS)
             messages = []
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
@@ -83,7 +84,7 @@ class AnthropicProvider(BaseLLMProvider):
             return "[Anthropic Error]: Chưa cấu hình ANTHROPIC_API_KEY trong file .env!"
         try:
             import anthropic
-            client = anthropic.Anthropic(api_key=self.api_key)
+            client = anthropic.Anthropic(api_key=self.api_key, timeout=TIMEOUT_SECONDS)
             kwargs = {
                 "model": self.model_name,
                 "max_tokens": 1000,
@@ -121,7 +122,12 @@ class OpenRouterProvider(BaseLLMProvider):
                 "model": self.model_name,
                 "messages": messages
             }
-            res = requests.post("https://openrouter.ai/api/v1/chat/completions", headers=headers, json=payload, timeout=30)
+            res = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=TIMEOUT_SECONDS,
+            )
             if res.status_code == 200:
                 data = res.json()
                 return data["choices"][0]["message"]["content"]
@@ -135,6 +141,13 @@ class MockProvider(BaseLLMProvider):
     """Offline Mock Provider (Cho bài test không cần kết nối API)"""
     def generate(self, prompt: str, system_prompt: str = "") -> str:
         text = prompt.lower()
+        if "react agent" in system_prompt.lower():
+            if "ignore all recruitment rules" in text:
+                return "Final Answer: Yêu cầu bị chặn vì vi phạm quy tắc tuyển dụng."
+            if "observation:" in text:
+                return "Thought: Tôi đã có dữ liệu từ tool.\nFinal Answer: Đây là kết quả khách quan từ dữ liệu vừa tra cứu."
+            if "candidate_cv" in text and "job_description" in text:
+                return "Thought: Cần so sánh CV với yêu cầu công việc.\nAction: analyze_cv['Python, SQL, Docker, 3 năm kinh nghiệm', 'Python, SQL, Docker, 2 năm kinh nghiệm']"
         if "thời tiết" in text and "hà nội" in text:
             return "Thought: Cần tra cứu thời tiết Hà Nội.\nAction: get_weather['Hà Nội']"
         return "🤖 [Mock Provider]: Phản hồi giả lập offline cho bài test."

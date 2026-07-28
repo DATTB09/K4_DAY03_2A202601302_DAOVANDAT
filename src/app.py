@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 
 from dotenv import load_dotenv
 
@@ -16,7 +17,12 @@ if sys.stdout.encoding != "utf-8":
     except Exception:
         pass
 
-from prompts import CHATBOT_BASELINE_PROMPT, MAX_ITERATIONS, REACT_SYSTEM_PROMPT
+from prompts import (
+    CHATBOT_BASELINE_PROMPT,
+    GEMINI_REQUEST_DELAY_SECONDS,
+    MAX_ITERATIONS,
+    REACT_SYSTEM_PROMPT,
+)
 from providers import get_llm_provider
 from tools import AVAILABLE_TOOLS
 
@@ -26,6 +32,19 @@ SAFE_FALLBACK = (
     "Xin lỗi, tôi chưa thể hoàn tất yêu cầu một cách đáng tin cậy. "
     "Vui lòng kiểm tra lại thông tin và thử lại."
 )
+_last_gemini_request_at = 0.0
+
+
+def generate_response(provider, prompt: str, system_prompt: str) -> str:
+    """Gọi LLM và giãn request khi dùng Gemini Free Tier."""
+    global _last_gemini_request_at
+    if provider.__class__.__name__ == "GeminiProvider":
+        wait_seconds = GEMINI_REQUEST_DELAY_SECONDS - (time.monotonic() - _last_gemini_request_at)
+        if wait_seconds > 0:
+            print(f"⏳ Chờ {wait_seconds:.0f}s để tránh vượt quota Gemini Free Tier...")
+            time.sleep(wait_seconds)
+        _last_gemini_request_at = time.monotonic()
+    return provider.generate(prompt, system_prompt=system_prompt)
 
 
 def load_test_cases():
@@ -51,20 +70,18 @@ def test_case_to_prompt(test_case: dict) -> str:
 
     input_data = test_case.get("input", {})
     workflow = test_case.get("workflow", [])
-    expected = test_case.get("expected", {})
     return (
         f"Nhiệm vụ: {title}.\n"
         f"Dữ liệu đầu vào: {json.dumps(input_data, ensure_ascii=False)}\n"
         f"Quy trình mong muốn: {', '.join(workflow) if workflow else 'Không có'}.\n"
-        f"Hãy đánh giá ứng viên theo quy tắc tuyển dụng và giải thích ngắn gọn."
-        f" Kết quả mong đợi để đối chiếu: {json.dumps(expected, ensure_ascii=False)}"
+        "Hãy đánh giá ứng viên theo quy tắc tuyển dụng và giải thích ngắn gọn."
     )
 
 
 def run_baseline_chatbot(user_query: str, provider) -> str:
     """Chạy chatbot cơ sở bằng đúng một LLM call, không dùng tool."""
     print(f"\n💬 [CHATBOT BASELINE] Câu hỏi: {user_query}")
-    response = provider.generate(user_query, system_prompt=CHATBOT_BASELINE_PROMPT)
+    response = generate_response(provider, user_query, CHATBOT_BASELINE_PROMPT)
     print(f"🤖 Chatbot trả lời:\n{response}")
     return response
 
@@ -104,11 +121,15 @@ def execute_tool(tool_name: str, args: list) -> str:
 def run_react_agent(user_query: str, provider) -> str:
     """Điều phối ReAct: Thought → Action → Observation → Final Answer."""
     print(f"\n🤖 [REACT AGENT] Câu hỏi: {user_query}")
+    if re.search(r"ignore\s+(all|mọi).*(rule|quy tắc).*(accept|chấp nhận)", user_query, re.I):
+        answer = "Yêu cầu bị từ chối vì cố gắng thay đổi quy tắc tuyển dụng."
+        print(f"🏁 Final Answer: {answer}")
+        return answer
     history = f"Question: {user_query}"
 
     for step in range(1, MAX_ITERATIONS + 1):
         print(f"\n--- 🔄 Vòng lặp ReAct (Step {step}/{MAX_ITERATIONS}) ---")
-        llm_response = provider.generate(history, system_prompt=REACT_SYSTEM_PROMPT).strip()
+        llm_response = generate_response(provider, history, REACT_SYSTEM_PROMPT).strip()
         print(f"🧠 LLM response:\n{llm_response}")
 
         final_match = re.search(
@@ -119,11 +140,19 @@ def run_react_agent(user_query: str, provider) -> str:
             print(f"🏁 Final Answer: {answer}")
             return answer
 
+        if llm_response.startswith("[") and "Error" in llm_response:
+            print(f"🏁 Final Answer: {SAFE_FALLBACK}")
+            return SAFE_FALLBACK
+
         try:
             tool_name, args = parse_action(llm_response)
             print(f"🛠️ Action: {tool_name}{args}")
             observation = execute_tool(tool_name, args)
         except ValueError as error:
+            # Khi LLM yêu cầu người dùng bổ sung dữ liệu thay vì gọi tool, dừng lịch sự.
+            if llm_response:
+                print(f"🏁 Final Answer: {llm_response}")
+                return llm_response
             observation = f"LỖI PARSE ACTION: {error}"
 
         print(f"👁️ Observation: {observation}")

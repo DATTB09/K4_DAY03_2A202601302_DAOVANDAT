@@ -71,6 +71,14 @@
       "id": "TC004",
       "category": "Multi-Step",
       "title": "Qualified candidate with available interview slot",
+      "input": {
+        "job_description": "Backend Developer cần Python, SQL, Docker và ít nhất 2 năm kinh nghiệm.",
+        "candidate_cv": "Nguyen Van A có 3 năm Python, SQL, Docker.",
+        "candidate_name": "Nguyen Van A",
+        "date": "2026-07-30",
+        "preferred_time": "09:00-09:30",
+        "interviewer": "Ms. Lan"
+      },
       "workflow": [
         "Read JD",
         "Read CV",
@@ -91,6 +99,13 @@
       "id": "TC005",
       "category": "Multi-Step",
       "title": "Qualified candidate but interviewer has no available slot",
+      "input": {
+        "job_description": "Backend Developer cần Python và SQL.",
+        "candidate_cv": "Ung vien Lich Kin có 4 năm Python và SQL.",
+        "candidate_name": "Lich Kin",
+        "date": "2026-08-01",
+        "interviewer": "Ms. Lan"
+      },
       "workflow": [
         "Read JD",
         "Read CV",
