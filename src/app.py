@@ -29,11 +29,36 @@ SAFE_FALLBACK = (
 
 
 def load_test_cases():
-    """Đọc bộ test cases do Role 1 chuẩn bị."""
+    """Đọc danh sách ``test_cases`` do Role 1 chuẩn bị."""
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_dir, "config", "test_cases.json")
     with open(config_path, "r", encoding="utf-8") as file:
-        return json.load(file)
+        data = json.load(file)
+
+    if isinstance(data, dict):
+        return data.get("test_cases", [])
+    if isinstance(data, list):  # Tương thích với định dạng test case cũ.
+        return data
+    raise ValueError("config/test_cases.json phải là một list hoặc có trường 'test_cases'.")
+
+
+def test_case_to_prompt(test_case: dict) -> str:
+    """Chuyển dữ liệu test case tuyển dụng thành câu hỏi cho LLM."""
+    title = test_case.get("title", "Đánh giá hồ sơ tuyển dụng")
+    user_prompt = test_case.get("user_prompt")
+    if user_prompt:
+        return user_prompt
+
+    input_data = test_case.get("input", {})
+    workflow = test_case.get("workflow", [])
+    expected = test_case.get("expected", {})
+    return (
+        f"Nhiệm vụ: {title}.\n"
+        f"Dữ liệu đầu vào: {json.dumps(input_data, ensure_ascii=False)}\n"
+        f"Quy trình mong muốn: {', '.join(workflow) if workflow else 'Không có'}.\n"
+        f"Hãy đánh giá ứng viên theo quy tắc tuyển dụng và giải thích ngắn gọn."
+        f" Kết quả mong đợi để đối chiếu: {json.dumps(expected, ensure_ascii=False)}"
+    )
 
 
 def run_baseline_chatbot(user_query: str, provider) -> str:
@@ -126,8 +151,11 @@ if __name__ == "__main__":
         test_id = test_case.get("id", "?")
         category = test_case.get("category", "Chưa phân loại")
         print(f"\n========== TEST CASE #{test_id}: {category} ==========")
-        run_baseline_chatbot(test_case["question"], provider)
+        run_baseline_chatbot(test_case_to_prompt(test_case), provider)
 
-    react_test = next((case for case in tests if "Tool" in case.get("category", "")), tests[0])
+    react_test = next((case for case in tests if case.get("category") == "Multi-Step"), tests[0])
     print(f"\n--- DEMO 2: REACT AGENT (TEST CASE #{react_test.get('id', '?')}) ---")
-    run_react_agent(react_test["question"], provider)
+    run_react_agent(test_case_to_prompt(react_test), provider)
+
+    # Giữ cửa sổ console mở khi người dùng bấm đúp chạy file trên Windows.
+    input("\n✅ Chương trình đã chạy xong. Nhấn Enter để thoát...")
