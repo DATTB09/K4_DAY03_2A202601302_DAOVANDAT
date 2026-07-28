@@ -1,0 +1,19 @@
+flowchart TD
+    U["Yêu cầu tuyển dụng"] --> Q{"Cần dữ liệu CV, điểm, lịch hoặc side effect?"}
+    Q -->|"Không: tư vấn/soạn mẫu"| C["Chatbot baseline: 1 LLM call, 0 tool"]
+    Q -->|"Có"| I{"Injection hoặc input rỗng/bất nhất?"}
+    I -->|"Có"| G["BLOCKED / ERROR / FLAGGED và ghi trace"]
+    I -->|"Không"| S["screen_candidate"]
+    S --> R{"Kết quả screening"}
+    R -->|"REJECT"| X["Giải thích tiêu chí thiếu; HR quyết định"]
+    R -->|"REVIEW"| H["Chuyển HR review, không tự đặt lịch"]
+    R -->|"PASS"| K["check_interviewer_calendar"]
+    K --> A{"Có slot?"}
+    A -->|"Không"| N["suggest_new_slots; không book"]
+    A -->|"Có và đã xác nhận"| B["book_interview"]
+    B --> O{"Observation interview_booked=true?"}
+    O -->|"Không"| F["Fallback; không tuyên bố thành công"]
+    O -->|"Có"| E["generate_invitation_email draft"]
+    E --> Z["Trả booking id; email chưa gửi thật"]
+    S --> L{"Action lặp hoặc quá MAX_ITERATIONS?"}
+    L -->|"Có"| F
